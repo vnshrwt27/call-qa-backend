@@ -101,10 +101,17 @@ async def upload_and_process(file: UploadFile = File(...)):
 async def get_all_transcripts():
     try:
         transcripts = database.get_all_transcripts()
-        return JSONResponse(content={
-            "success": True,
-            "transcripts": transcripts
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "transcripts": transcripts
+            },
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
+                "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -164,16 +171,23 @@ async def get_dashboard():
         else:
             avg_score = max_score = min_score = 0
 
-        return JSONResponse(content={
-            "success": True,
-            "dashboard_data": {
-                "total_calls": total_calls,
-                "average_score": round(avg_score, 1),
-                "highest_score": max_score,
-                "lowest_score": min_score,
-                "call_evaluations": qa_evaluations
+        return JSONResponse(
+            content={
+                "success": True,
+                "dashboard_data": {
+                    "total_calls": total_calls,
+                    "average_score": round(avg_score, 1),
+                    "highest_score": max_score,
+                    "lowest_score": min_score,
+                    "call_evaluations": qa_evaluations
+                }
+            },
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
+                "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
             }
-        })
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
