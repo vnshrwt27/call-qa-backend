@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 class GeminiClient:
     def __init__(self):
-        load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+        load_dotenv()
         api_key = os.getenv('GEMINI_API_KEY')
         generation_config=genai.GenerationConfig(
             temperature=0
