@@ -1,18 +1,48 @@
 import os
 import glob
 import tempfile
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from file_processor import read_transcript_file, validate_file_type, save_uploaded_file, extract_transcript_text,transcribe_audio_file
 from field_extractor import FieldExtractor
 from qa_evaluator import QAEvaluator
 from database import Database
 
+class CustomCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Handle preflight requests
+        if request.method == "OPTIONS":
+            response = JSONResponse(
+                content={},
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
+                    "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers, ngrok-skip-browser-warning",
+                    "Access-Control-Max-Age": "86400",
+                }
+            )
+            return response
+        
+        # Process the request
+        response = await call_next(request)
+        
+        # Add CORS headers to all responses
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers, ngrok-skip-browser-warning"
+        
+        return response
+
 app = FastAPI(title="Transcript Field Extractor", version="1.0.0")
 
-# Enable CORS for frontend - Allow all origins
+# Add custom CORS middleware first (most important)
+app.add_middleware(CustomCORSMiddleware)
+
+# Enable CORS for frontend - Allow all origins (backup)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins
@@ -28,6 +58,7 @@ app.add_middleware(
         "Origin",
         "Access-Control-Request-Method",
         "Access-Control-Request-Headers",
+        "ngrok-skip-browser-warning",
     ],
     expose_headers=["*"],
 )
@@ -134,10 +165,11 @@ async def options_handler(path: str):
     """Handle all preflight requests"""
     return JSONResponse(
         content={}, 
+        status_code=200,
         headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
-            "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+            "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers, ngrok-skip-browser-warning",
             "Access-Control-Max-Age": "86400",
         }
     )
@@ -147,10 +179,11 @@ async def options_dashboard():
     """Handle preflight requests for dashboard endpoint"""
     return JSONResponse(
         content={}, 
+        status_code=200,
         headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
-            "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+            "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers, ngrok-skip-browser-warning",
             "Access-Control-Max-Age": "86400",
         }
     )
