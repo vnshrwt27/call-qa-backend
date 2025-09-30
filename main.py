@@ -14,10 +14,16 @@ app = FastAPI(title="Transcript Field Extractor", version="1.0.0")
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://call-qa-frontend-theta.vercel.app",
+        "http://localhost:3000",  # For local development
+        "http://localhost:3001",  # Alternative local port
+        "http://localhost:4173",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Initialize components
@@ -104,6 +110,11 @@ async def get_transcript(transcript_id: int):
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.options("/dashboard")
+async def dashboard_options():
+    """Handle preflight requests for dashboard endpoint"""
+    return JSONResponse(content={})
 
 @app.get("/dashboard")
 async def get_dashboard():
