@@ -4,6 +4,7 @@ import tempfile
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from file_processor import read_transcript_file, validate_file_type, save_uploaded_file, extract_transcript_text,transcribe_audio_file
 from field_extractor import FieldExtractor
 from qa_evaluator import QAEvaluator
@@ -11,17 +12,12 @@ from database import Database
 
 app = FastAPI(title="Transcript Field Extractor", version="1.0.0")
 
-# Enable CORS for frontend
+# Enable CORS for frontend - Allow all origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://call-qa-frontend-theta.vercel.app",
-        "http://localhost:3000",  # For local development
-        "http://localhost:3001",  # Alternative local port
-        "http://localhost:4173",
-    ],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
@@ -30,6 +26,11 @@ app.add_middleware(
 field_extractor = FieldExtractor()
 qa_evaluator = QAEvaluator()
 database = Database()
+
+# Mount static files if directory exists
+static_dir = "static"
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/")
 async def root():
@@ -111,10 +112,14 @@ async def get_transcript(transcript_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.options("/dashboard")
-async def dashboard_options():
-    """Handle preflight requests for dashboard endpoint"""
-    return JSONResponse(content={})
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    """Handle all preflight requests"""
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
+        "Access-Control-Allow-Headers": "*",
+    })
 
 @app.get("/dashboard")
 async def get_dashboard():
@@ -253,6 +258,20 @@ async def process_directory():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Catch-all route for missing resources
+@app.get("/{path:path}")
+async def catch_all(path: str):
+    """Catch-all route to handle missing resources gracefully"""
+    return JSONResponse(
+        content={"error": f"Resource not found: /{path}"}, 
+        status_code=404,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn
