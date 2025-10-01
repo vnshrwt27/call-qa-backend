@@ -1,6 +1,7 @@
 import os
 import glob
 import tempfile
+import asyncio
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -81,21 +82,29 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-@app.post("/upload-and-process")
-async def upload_and_process(file: UploadFile = File(...)):
+async def process_single_file(file: UploadFile):
+    """Process a single file asynchronously and return results."""
     try:
         # Validate file type
         if not validate_file_type(file.filename):
-            raise HTTPException(status_code=400, detail="Please upload a valid audio file")
+            return {
+                "success": False,
+                "filename": file.filename,
+                "error": "Please upload a valid audio file"
+            }
 
-        temp_dir=tempfile.mkdtemp(file.filename)
-        tmp_audio_path=os.path.join(temp_dir,file.filename)
+        temp_dir = tempfile.mkdtemp(file.filename)
+        tmp_audio_path = os.path.join(temp_dir, file.filename)
+        
+        # Read file content
+        content = await file.read()
         with open(tmp_audio_path, "wb") as f:
-            content = await file.read()
             f.write(content)
-        print(tmp_audio_path)
-        transcribed_audio=transcribe_audio_file(file_path=tmp_audio_path)
-        print("Hello")
+        
+        print(f"Processing: {tmp_audio_path}")
+        
+        # Transcribe audio file
+        transcribed_audio = transcribe_audio_file(file_path=tmp_audio_path)
         transcript_text = extract_transcript_text(transcribed_audio, file.filename)
 
         # 1. Extract fields using Gemini
@@ -115,7 +124,14 @@ async def upload_and_process(file: UploadFile = File(...)):
         qa_evaluation_dict = qa_evaluation.dict()
         qa_id = database.save_qa_evaluation(transcript_id, qa_evaluation_dict)
 
-        return JSONResponse(content={
+        # Clean up temporary file
+        try:
+            os.remove(tmp_audio_path)
+            os.rmdir(temp_dir)
+        except:
+            pass
+
+        return {
             "success": True,
             "transcript_id": transcript_id,
             "qa_evaluation_id": qa_id,
@@ -123,6 +139,103 @@ async def upload_and_process(file: UploadFile = File(...)):
             "extracted_fields": extracted_fields,
             "qa_evaluation": qa_evaluation_dict,
             "total_score": qa_evaluation.total_score
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "filename": file.filename,
+            "error": str(e)
+        }
+
+@app.post("/upload-and-process")
+async def upload_and_process(file: UploadFile = File(...)):
+    """Process a single file upload."""
+    result = await process_single_file(file)
+    
+    if result["success"]:
+        return JSONResponse(content=result)
+    else:
+        raise HTTPException(status_code=500, detail=result["error"])
+
+@app.post("/bulk-upload-and-process")
+async def bulk_upload_and_process(files: list[UploadFile] = File(..., alias="files")):
+    """Process multiple files in bulk asynchronously with retry mechanism for failed files."""
+    try:
+        if not files:
+            raise HTTPException(status_code=400, detail="No files provided")
+        
+        # Process files concurrently (but limit to avoid overwhelming the system)
+        semaphore = asyncio.Semaphore(3)  # Process max 3 files at a time
+        
+        async def process_with_semaphore(file):
+            async with semaphore:
+                return await process_single_file(file)
+        
+        # First pass: Process all files
+        tasks = [process_with_semaphore(file) for file in files]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results from first pass
+        successful = []
+        failed_files = []  # Store failed files for retry
+        failed_results = []
+        
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failed_files.append(files[i])
+                failed_results.append({
+                    "filename": files[i].filename,
+                    "error": str(result),
+                    "attempt": 1
+                })
+            elif result["success"]:
+                successful.append(result)
+            else:
+                failed_files.append(files[i])
+                failed_results.append({
+                    **result,
+                    "attempt": 1
+                })
+        
+        # Second pass: Retry failed files
+        if failed_files:
+            print(f"Retrying {len(failed_files)} failed files...")
+            
+            # Retry failed files
+            retry_tasks = [process_with_semaphore(file) for file in failed_files]
+            retry_results = await asyncio.gather(*retry_tasks, return_exceptions=True)
+            
+            # Process retry results
+            for i, result in enumerate(retry_results):
+                if isinstance(result, Exception):
+                    # File failed again, keep in failed list
+                    failed_results[i]["error"] = f"Retry failed: {str(result)}"
+                    failed_results[i]["attempt"] = 2
+                elif result["success"]:
+                    # File succeeded on retry, move to successful
+                    successful.append(result)
+                    failed_results[i] = None  # Mark for removal
+                else:
+                    # File failed again with different error
+                    failed_results[i]["error"] = f"Retry failed: {result['error']}"
+                    failed_results[i]["attempt"] = 2
+            
+            # Remove successful retries from failed list
+            failed_results = [f for f in failed_results if f is not None]
+        
+        # Final results
+        final_failed = failed_results
+        final_successful = successful
+        
+        return JSONResponse(content={
+            "success": True,
+            "total_files": len(files),
+            "successful_count": len(final_successful),
+            "failed_count": len(final_failed),
+            "successful_files": final_successful,
+            "failed_files": final_failed,
+            "message": f"Processing completed for {len(files)} files. {len(final_successful)} completed successfully, {len(final_failed)} failed after retry."
         })
 
     except Exception as e:
@@ -177,6 +290,20 @@ async def options_handler(path: str):
 @app.options("/dashboard")
 async def options_dashboard():
     """Handle preflight requests for dashboard endpoint"""
+    return JSONResponse(
+        content={}, 
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
+            "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers, ngrok-skip-browser-warning",
+            "Access-Control-Max-Age": "86400",
+        }
+    )
+
+@app.options("/bulk-upload-and-process")
+async def options_bulk_upload():
+    """Handle preflight requests for bulk upload endpoint"""
     return JSONResponse(
         content={}, 
         status_code=200,
