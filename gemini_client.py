@@ -1,4 +1,7 @@
 import os
+import time
+import base64
+import mimetypes
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -6,20 +9,41 @@ class GeminiClient:
     def __init__(self):
         load_dotenv()
         api_key = os.getenv('GEMINI_API_KEY')
-        generation_config=genai.GenerationConfig(
-            temperature=0
+        generation_config = genai.GenerationConfig(
+            temperature=0,
+            response_mime_type="application/json"
         )
 
         if not api_key:
             raise Exception("GEMINI_API_KEY not found in environment variables")
 
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
+        self.model = genai.GenerativeModel(
+            model_name='gemini-2.0-flash-001',
+            generation_config=generation_config
+        )
+
     def transcribe_audio(self, file_path ,prompt):
-        """Transcribe Audio using Gemini"""
+        """Transcribe Audio using Gemini (inline data to avoid RAG file paths)."""
         try:
-            uploaded_file=genai.upload_file(path=file_path)
-            response=self.model.generate_content([prompt,uploaded_file])
+            # Determine mime type
+            mime_type, _ = mimetypes.guess_type(file_path)
+            mime_type = mime_type or 'audio/mpeg'
+
+            # Read and base64-encode the audio
+            with open(file_path, 'rb') as f:
+                data_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+            # Send prompt + audio via inline_data to fully bypass RAG storage
+            contents = [{
+                "role": "user",
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": mime_type, "data": data_b64}}
+                ]
+            }]
+
+            response = self.model.generate_content(contents=contents)
             return response.text
         except Exception as e:
             raise Exception(f"Error transcribing audio from gemini :{str(e)}")

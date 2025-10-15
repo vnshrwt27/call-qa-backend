@@ -69,6 +69,13 @@ field_extractor = FieldExtractor()
 qa_evaluator = QAEvaluator()
 database = Database()
 
+# Log presence of GEMINI_API_KEY at startup (value not printed for security)
+try:
+    has_gemini_key = os.getenv("GEMINI_API_KEY") is not None
+    print(f"[startup] GEMINI_API_KEY present: {has_gemini_key}")
+except Exception as _e:
+    print(f"[startup] Failed to read GEMINI_API_KEY presence: {_e}")
+
 # Mount static files if directory exists
 static_dir = "static"
 if os.path.exists(static_dir):

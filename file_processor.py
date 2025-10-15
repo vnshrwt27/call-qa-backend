@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from gemini_client import GeminiClient
 
 def read_transcript_file(file_path):
@@ -17,7 +18,7 @@ def read_transcript_file(file_path):
 
 def validate_file_type(filename):
     """Validate if the uploaded file is a text or JSON file."""
-    allowed_extensions = ['.wav','.mp3','m4a','.flac']
+    allowed_extensions = ['.wav', '.mp3', '.m4a', '.flac']
     file_extension = os.path.splitext(filename)[1].lower()
     return file_extension in allowed_extensions
 
@@ -35,10 +36,10 @@ def save_uploaded_file(file_content, filename, upload_dir="uploads"):
     except Exception as e:
         raise Exception(f"Error saving file: {str(e)}")
 
-def transcribe_audio_file(file_path):
-    """Transcribe Audio File"""
-    client=GeminiClient()
-    prompt="""
+def transcribe_audio_file(file_path, max_retries=2):
+    """Transcribe Audio File with basic retries for transient failures."""
+    client = GeminiClient()
+    prompt = """
     You are trnacribing this audio file you must be accurate and specfic
 Analyze the provided audio file. Your response **must be a single, complete JSON object** and nothing else.
 
@@ -78,8 +79,18 @@ Use the following JSON structure and content as a template for your response:
 }}
 ```
 """
-    transcription_text=client.transcribe_audio(file_path,prompt)
-    return transcription_text
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            transcription_text = client.transcribe_audio(file_path, prompt)
+            return transcription_text
+        except Exception as e:
+            last_error = e
+            backoff_seconds = 1 * (2 ** attempt)
+            print(f"[transcribe_audio_file] attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries:
+                time.sleep(backoff_seconds)
+    raise Exception(f"Transcription failed after {max_retries + 1} attempts: {last_error}")
 
 def extract_transcript_text(file_content, filename):
     """Extract transcript text from file content (supports .txt and .json files)."""
